@@ -16,7 +16,7 @@ def getbeam(datadict, beamfolder, beamlog, bmaj=None, bmin=None, bpa=None, verbo
     """
     if verbose:
         print(f'Getting beam data from {beamfolder}/{beamlog}')
-    try:
+    if beamfolder is not None and beamlog is not None:
         beams = np.genfromtxt(f"{beamfolder}/{beamlog}", names=True)
         # nchan=beams.shape[0]
         colnames = ['Channel', 'BMAJarcsec', 'BMINarcsec', 'BPAdeg']
@@ -34,19 +34,17 @@ def getbeam(datadict, beamfolder, beamlog, bmaj=None, bmin=None, bpa=None, verbo
             bmin_mx*u.arcsec,
             bpas*u.deg
         )
-    except OSError:
-        print('No beamlog file found!')
+        if verbose:
+            print(f'Current beam is {old_beam}')
+        if bmaj is None:
+            bmaj = bmaj_mx
+        if bmin is None:
+            bmin = bmaj_mx
+    else:
+        print('No beamlog file given!')
         if bmaj is None or bmin is None:
             raise Exception('Please supply BMAJ and BMIN')
-                
 
-    if verbose:
-        print(f'Current beam is {old_beam}')
-
-    if bmaj is None:
-        bmaj = bmaj_mx
-    if bmin is None:
-        bmin = bmaj_mx
     if bpa is None:
         bpa = 0
 
@@ -198,14 +196,16 @@ def cli():
         help='Output name of smoothed FITS image [infile.sm.fits].')
 
     parser.add_argument(
-        'beamfolder',
-        metavar='beamfolder',
+        '-f',
+        '--beamfolder',
+        dest='beamfolder',
         type=str,
         help='Directory containing beamlog file.')
 
     parser.add_argument(
-        'bmlognm',
-        metavar='bmlognm',
+        '-l',
+        '--beamlog',
+        dest='bmlognm',
         type=str,
         help='Name of beamlog file.')
 
