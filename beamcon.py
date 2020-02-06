@@ -156,7 +156,7 @@ def cli():
     """Command-line interface
     """
     import argparse
-    import schwimmbad
+    #import schwimmbad
 
     # Help string to be shown using the -h option
     descStr = f"""
