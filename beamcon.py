@@ -1,3 +1,4 @@
+#!/usr/bin/env python
 import numpy as np
 from scipy import signal as sig
 from astropy.io import fits
@@ -15,17 +16,32 @@ def getbeam(datadict, beamfolder, beamlog, bmaj=None, bmin=None, bpa=None, verbo
     """
     if verbose:
         print(f'Getting beam data from {beamfolder}/{beamlog}')
-    beams = np.genfromtxt(f"{beamfolder}/{beamlog}", names=True)
-    # nchan=beams.shape[0]
-    colnames = ['Channel', 'BMAJarcsec', 'BMINarcsec', 'BPAdeg']
+    try:
+        beams = np.genfromtxt(f"{beamfolder}/{beamlog}", names=True)
+        # nchan=beams.shape[0]
+        colnames = ['Channel', 'BMAJarcsec', 'BMINarcsec', 'BPAdeg']
 
-    bmajs = beams['BMAJarcsec'].copy()
-    bmins = beams['BMINarcsec'].copy()
-    bpas = beams['BPAdeg'].copy()
-    bpasr = np.radians(bpas)
+        bmajs = beams['BMAJarcsec'].copy()
+        bmins = beams['BMINarcsec'].copy()
+        bpas = beams['BPAdeg'].copy()
+        bpasr = np.radians(bpas)
 
-    bmaj_mx = bmajs.max()
-    bmin_mx = bmins.max()
+        bmaj_mx = bmajs.max()
+        bmin_mx = bmins.max()
+
+        old_beam = Beam(
+            bmaj_mx*u.arcsec,
+            bmin_mx*u.arcsec,
+            bpas*u.deg
+        )
+    except OSError:
+        print('No beamlog file found!')
+        if bmaj is None or bmin is None:
+            raise Exception('Please supply BMAJ and BMIN')
+                
+
+    if verbose:
+        print(f'Current beam is {old_beam}')
 
     if bmaj is None:
         bmaj = bmaj_mx
@@ -209,6 +225,13 @@ def cli():
         type=float,
         default=None,
         help="BMIN to convolve to [Max BMAJ from beamlog].")
+
+    parser.add_argument(
+        "--bpa",
+        dest="bpa",
+        type=float,
+        default=None,
+        help="BPA to convolve to [0].")
 
     #group = parser.add_mutually_exclusive_group()
 
