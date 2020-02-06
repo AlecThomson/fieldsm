@@ -159,7 +159,7 @@ def cli():
     #import schwimmbad
 
     # Help string to be shown using the -h option
-    descStr = f"""
+    descStr = """
     Smooth a field to a common resolution.
 
     """
@@ -210,7 +210,7 @@ def cli():
         default=None,
         help="BMIN to convolve to [Max BMAJ from beamlog].")
 
-    group = parser.add_mutually_exclusive_group()
+    #group = parser.add_mutually_exclusive_group()
 
     # group.add_argument("--ncores", dest="n_cores", default=1,
     #                   type=int, help="Number of processes (uses multiprocessing).")
