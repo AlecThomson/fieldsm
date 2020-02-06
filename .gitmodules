@@ -1,0 +1,3 @@
+[submodule "gaussfitter"]
+	path = gaussfitter
+	url = https://github.com/keflavich/gaussfitter.git
