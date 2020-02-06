@@ -136,7 +136,7 @@ def main(args, verbose=False):
         if beamfolder[-1] == '/':
             beamfolder = beamfolder[:-1]
 
-    datadict = getimdata(args.cubenm)
+    datadict = getimdata(args.infile)
 
     conbeams, final_beam, sfactors = getbeam(
         datadict,
