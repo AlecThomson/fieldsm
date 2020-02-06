@@ -132,8 +132,9 @@ def main(args, verbose=False):
         outfile = args.infile.replace('.fits', '.sm.fits')
 
     beamfolder = args.beamfolder
-    if beamfolder[-1] == '/':
-        beamfolder = beamfolder[:-1]
+    if beamfolder is not None:
+        if beamfolder[-1] == '/':
+            beamfolder = beamfolder[:-1]
 
     datadict = getimdata(args.cubenm)
 
