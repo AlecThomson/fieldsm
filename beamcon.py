@@ -29,9 +29,9 @@ def getbeam(datadict, new_beam, verbose=False):
             conbm.pa.value
         ],
         beamOrig=[
-            datadict['oldbeam'].major.value,
-            datadict['oldbeam'].minor.value,
-            datadict['oldbeam'].pa.value
+            datadict['oldbeam'].major.to(u.arcsec).value,
+            datadict['oldbeam'].minor.to(u.arcsec).value,
+            datadict['oldbeam'].pa.to(u.deg).value
         ],
         dx1=datadict['dx'],
         dy1=datadict['dy']
@@ -98,7 +98,6 @@ def savefile(datadict, filename, outdir='.', verbose=False):
     header['BMIN'] = beam.minor.to(u.arcsec).value
     header['BMAJ'] = beam.minor.to(u.arcsec).value
     header['BPA'] = beam.pa.to(u.deg).value
-    print(header['BMAJ'])
     fits.writeto(outfile, datadict['newimage'], header=header, overwrite=True)
 
 
@@ -143,7 +142,6 @@ def getmaxbeam(files, verbose=False):
         header = fits.getheader(file, memmap=True)
         beam = Beam.from_fits_header(header)
         beams.append(beam)
-        print(beam)
 
     beams = Beams(
         [beam.major.value for beam in beams]*u.deg,
