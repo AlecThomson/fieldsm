@@ -1,64 +1,43 @@
 #!/usr/bin/env python
+
 import numpy as np
 from scipy import signal as sig
-from astropy.io import fits
-from radio_beam import Beam
 from astropy import units as u
+from astropy.io import fits
+from radio_beam import Beam, Beams
+from glob import glob
 import au2
+import functools
+print = functools.partial(print, flush=True)
 
 #############################################
 #### ADAPTED FROM SCRIPT BY T. VERNSTROM ####
 #############################################
 
 
-def getbeam(datadict, beamfolder, beamlog, bmaj=None, bmin=None, bpa=None, verbose=False):
+def getbeam(datadict, new_beam, verbose=False):
     """Get beam info
     """
     if verbose:
-        print(f'Getting beam data from {beamfolder}/{beamlog}')
-    if beamfolder is not None and beamlog is not None:
-        beams = np.genfromtxt(f"{beamfolder}/{beamlog}", names=True)
-        # nchan=beams.shape[0]
-        colnames = ['Channel', 'BMAJarcsec', 'BMINarcsec', 'BPAdeg']
+        print(f"Current beam is", datadict['oldbeam'])
 
-        bmajs = beams['BMAJarcsec'].copy()
-        bmins = beams['BMINarcsec'].copy()
-        bpas = beams['BPAdeg'].copy()
-        bpasr = np.radians(bpas)
-
-        bmaj_mx = bmajs.max()
-        bmin_mx = bmins.max()
-
-        old_beam = Beam(
-            bmaj_mx*u.arcsec,
-            bmin_mx*u.arcsec,
-            bpas*u.deg
-        )
-        if verbose:
-            print(f'Current beam is {old_beam}')
-        if bmaj is None:
-            bmaj = bmaj_mx
-        if bmin is None:
-            bmin = bmaj_mx
-    else:
-        print('No beamlog file given!')
-        if bmaj is None or bmin is None:
-            raise Exception('Please supply BMAJ and BMIN')
-
-    if bpa is None:
-        bpa = 0
-
-    final_beam = [bmaj, bmin, bpa]
-
-    conbm = au2.gaussianDeconvolve(
-        final_beam[0], final_beam[1], final_beam[2], bmajs[0], bmins[0], bpas[0])
-    inputbm = [bmajs[0], bmins[0], bpas[0]]
+    conbm = new_beam.deconvolve(datadict['oldbeam'])
     fac, amp, outbmaj, outbmin, outbpa = au2.gauss_factor(
-        conbm, beamOrig=inputbm, dx1=datadict['dx'], dy1=datadict['dy'])
+        [
+            conbm.major.value,
+            conbm.minor.value,
+            conbm.pa.value
+        ],
+        beamOrig=[
+            datadict['oldbeam'].major.value,
+            datadict['oldbeam'].minor.value,
+            datadict['oldbeam'].pa.value
+        ],
+        dx1=datadict['dx'],
+        dy1=datadict['dy']
+    )
 
-    conbeams = [conbm[0], conbm[1], bpas[2]]
-    sfactors = fac
-    return conbeams, final_beam, sfactors
+    return conbm, fac
 
 
 def getimdata(cubenm, verbose=False):
@@ -74,9 +53,14 @@ def getimdata(cubenm, verbose=False):
         nx, ny = hdu[0].data[0, 0, :,
                              :].shape[0], hdu[0].data[0, 0, :, :].shape[1]
 
+        old_beam = Beam.from_fits_header(
+            hdu[0].header
+        )
+
         datadict = {
             'image': hdu[0].data[0, 0, :, :],
             'header': hdu[0].header,
+            'oldbeam': old_beam,
             'nx': nx,
             'ny': ny,
             'dx': dxas,
@@ -89,80 +73,136 @@ def smooth(datadict, verbose=False):
     """Do the smoothing
     """
     # using Beams package
-    final_bm = Beam(
-        datadict["final_beam"][0]*u.arcsec,
-        datadict["final_beam"][1]*u.arcsec,
-        datadict["final_beam"][2]*u.deg
-    )
     if verbose:
-        print(f'Smoothing so beam is {final_bm}')
+        print(f'Smoothing so beam is', datadict["final_beam"])
+        print(f'Using convolving beam', datadict["conbeam"])
     pix_scale = datadict['dy'] * u.arcsec
 
-    con_bm = Beam(
-        datadict["conbeams"][0]*u.arcssec,
-        datadict["conbeams"][1]*u.arcsec,
-        datadict["conbeams"][2]*u.deg
-    )
-    gauss_kern = con_bm.as_kernel(pix_scale)
+    gauss_kern = datadict["conbeam"].as_kernel(pix_scale)
 
     conbm1 = gauss_kern.array/gauss_kern.array.max()
 
     newim = sig.fftconvolve(datadict['image'], conbm1, mode='same')
-    newim = newim*datadict["sfactors"]
-    return final_bm, newim
+    newim = newim*datadict["sfactor"]
+    return newim
 
 
-def savefile(datadict, filename, verbose=False):
+def savefile(datadict, filename, outdir='.', verbose=False):
     """Save file to disk
     """
+    outfile = f'{outdir}/{filename}'
     if verbose:
-        print(f'Saving to {filename}')
+        print(f'Saving to {outfile}')
     header = datadict['header']
-    beam = datadict['newbeam']
-    header['BMIN'] = beam.minor.to(u.arcsec)
-    header['BMAJ'] = beam.minor.to(u.arcsec)
-    header['BPA'] = beam.pa.to(u.deg)
-    fits.writeto(filename, datadict['newim'], header=header, overwrite=True)
+    beam = datadict['final_beam']
+    header['BMIN'] = beam.minor.to(u.arcsec).value
+    header['BMAJ'] = beam.minor.to(u.arcsec).value
+    header['BPA'] = beam.pa.to(u.deg).value
+    print(header['BMAJ'])
+    fits.writeto(outfile, datadict['newimage'], header=header, overwrite=True)
 
 
-def main(args, verbose=False):
-    """Main script
-    """
-    if args.outfile is None:
-        outfile = args.infile.replace('.fits', '.sm.fits')
+def worker(args):
+    file, outdir, new_beam, verbose = args
+    if verbose:
+        print(f'Working on {file}')
+    
+    outfile = file.replace('.fits', '.sm.fits')
+    datadict = getimdata(file)
 
-    beamfolder = args.beamfolder
-    if beamfolder is not None:
-        if beamfolder[-1] == '/':
-            beamfolder = beamfolder[:-1]
-
-    datadict = getimdata(args.infile)
-
-    conbeams, final_beam, sfactors = getbeam(
+    conbeam, sfactor = getbeam(
         datadict,
-        beamfolder,
-        args.bmlognm,
+        new_beam,
         verbose=verbose
     )
 
     datadict.update(
         {
-            "conbeams": conbeams,
-            "final_beam": final_beam,
-            "sfactors": sfactors
+            "conbeam": conbeam,
+            "final_beam": new_beam,
+            "sfactor": sfactor
         }
     )
 
-    final_bm, newim = smooth(datadict, verbose=verbose)
+    newim= smooth(datadict, verbose=verbose)
 
     datadict.update(
         {
             "newimage": newim,
-            "newbeam": final_bm
         }
     )
 
-    savefile(datadict, outfile, verbose=verbose)
+    savefile(datadict, outfile, outdir, verbose=verbose)
+
+
+def getmaxbeam(files, verbose=False):
+    """Get largest beam
+    """
+    beams = []
+    for file in files:
+        header = fits.getheader(file, memmap=True)
+        beam = Beam.from_fits_header(header)
+        beams.append(beam)
+        print(beam)
+
+    beams = Beams(
+        [beam.major.value for beam in beams]*u.deg,
+        [beam.minor.value for beam in beams]*u.deg,
+        [beam.pa.value for beam in beams]*u.deg
+    )
+
+    return beams.largest_beam()
+
+
+def main(pool, args, verbose=False):
+    """Main script
+    """
+
+    # Fix up outdir
+    outdir = args.outdir
+    if outdir is not None:
+        if outdir[-1] == '/':
+            outdir = outdir[:-1]
+    else:
+        outdir = '.'
+
+    # Get file list
+    files = glob(args.infile)
+
+    # Find largest bmax
+    big_beam = getmaxbeam(files, verbose=verbose)
+
+    # Parse args
+    bmaj = args.bmaj
+    bmin = args.bmin
+    bpa = args.bpa
+
+    # Set to largest
+    if bmaj is None:
+        bmaj = big_beam.major.to(u.arcsec).round()
+    else:
+        bmaj *= u.arcsec
+    if bmin is None:
+        bmin = big_beam.major.to(u.arcsec).round()
+    else:
+        bmin *= u.arcsec
+    if bpa is None:
+        bpa = 0*u.deg
+
+    new_beam = Beam(
+        bmaj,
+        bmin,
+        bpa
+    )
+    if verbose:
+        print(f'Final beam is', new_beam)
+
+    inputs = [[file, outdir, new_beam, verbose]
+              for i, file in enumerate(files)]
+
+    output = list(pool.map(worker, inputs))
+    pool.close()
+
     if verbose:
         print('Done!')
 
@@ -171,7 +211,6 @@ def cli():
     """Command-line interface
     """
     import argparse
-    #import schwimmbad
 
     # Help string to be shown using the -h option
     descStr = """
@@ -187,28 +226,14 @@ def cli():
         'infile',
         metavar='infile',
         type=str,
-        help='Input beam FITS image to smooth.')
+        help='Input FITS image to smooth (can be a wildcard) - beam info must be in header.')
 
     parser.add_argument(
-        'outfile',
-        metavar='outfile',
+        'outdir',
+        metavar='outdir',
         type=str,
         default=None,
-        help='Output name of smoothed FITS image [infile.sm.fits].')
-
-    parser.add_argument(
-        '-f',
-        '--beamfolder',
-        dest='beamfolder',
-        type=str,
-        help='Directory containing beamlog file.')
-
-    parser.add_argument(
-        '-l',
-        '--beamlog',
-        dest='bmlognm',
-        type=str,
-        help='Name of beamlog file.')
+        help='Output directory of smoothed FITS image(s) [./].')
 
     parser.add_argument("-v", "--verbose", dest="verbose", action="store_true",
                         help="verbose output [False].")
@@ -218,14 +243,14 @@ def cli():
         dest="bmaj",
         type=float,
         default=None,
-        help="BMAJ to convolve to [Max BMAJ from beamlog].")
+        help="BMAJ to convolve to [max BMAJ from given image(s)].")
 
     parser.add_argument(
         "--bmin",
         dest="bmin",
         type=float,
         default=None,
-        help="BMIN to convolve to [Max BMAJ from beamlog].")
+        help="BMIN to convolve to [max BMAJ from given image(s)].")
 
     parser.add_argument(
         "--bpa",
@@ -234,19 +259,26 @@ def cli():
         default=None,
         help="BPA to convolve to [0].")
 
-    #group = parser.add_mutually_exclusive_group()
+    group = parser.add_mutually_exclusive_group()
 
-    # group.add_argument("--ncores", dest="n_cores", default=1,
-    #                   type=int, help="Number of processes (uses multiprocessing).")
-    # group.add_argument("--mpi", dest="mpi", default=False,
-    #                   action="store_true", help="Run with MPI.")
-    #
+    group.add_argument("--ncores", dest="n_cores", default=1,
+                       type=int, help="Number of processes (uses multiprocessing).")
+    group.add_argument("--mpi", dest="mpi", default=False,
+                       action="store_true", help="Run with MPI.")
+
     args = parser.parse_args()
-    #pool = schwimmbad.choose_pool(mpi=args.mpi, processes=args.n_cores)
+    try:
+        import schwimmbad
+        pool = schwimmbad.choose_pool(mpi=args.mpi, processes=args.n_cores)
+    except ModuleNotFoundError:
+        import multiprocessing as mp
+        pool = mp.Pool(processes=args.n_cores)
+        if args.mpi or args.n_cores == 1:
+            raise Exception('Please use Schwimmbad!')
 
     verbose = args.verbose
 
-    main(args, verbose=verbose)
+    main(pool, args, verbose=verbose)
 
 
 if __name__ == "__main__":
