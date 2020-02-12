@@ -3,7 +3,7 @@ import numpy as np
 import math
 
 
-def gaussianDeconvolve (smaj, smin, spa, bmaj, bmin, bpa):
+def gaussianDeconvolve(smaj, smin, spa, bmaj, bmin, bpa):
     """'s' as in 'source', 'b' as in 'beam'. All arguments in
     radians. (Well, major and minor axes can be in any units, so long
     as they're consistent.)

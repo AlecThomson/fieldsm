@@ -1,13 +1,17 @@
 #!/usr/bin/env python
 
 import numpy as np
-from scipy import signal as sig
+import scipy.signal
+from astropy.convolution import convolve, convolve_fft
 from astropy import units as u
 from astropy.io import fits
 from radio_beam import Beam, Beams
 from glob import glob
 import au2
 import functools
+import pyfftw
+# Monkey patch fftpack with pyfftw.interfaces.scipy_fftpack
+scipy.fftpack = pyfftw.interfaces.scipy_fftpack
 print = functools.partial(print, flush=True)
 
 #############################################
@@ -22,11 +26,12 @@ def getbeam(datadict, new_beam, verbose=False):
         print(f"Current beam is", datadict['oldbeam'])
 
     conbm = new_beam.deconvolve(datadict['oldbeam'])
+    #conbm=au2.gaussianDeconvolve(final_beam[0], final_beam[1], final_beam[2], bmajs[i], bmins[i], bpas[i])
     fac, amp, outbmaj, outbmin, outbpa = au2.gauss_factor(
         [
-            conbm.major.value,
-            conbm.minor.value,
-            conbm.pa.value
+            conbm.major.to(u.arcsec).value,
+            conbm.minor.to(u.arcsec).value,
+            conbm.pa.to(u.deg).value
         ],
         beamOrig=[
             datadict['oldbeam'].major.to(u.arcsec).value,
@@ -82,8 +87,9 @@ def smooth(datadict, verbose=False):
 
     conbm1 = gauss_kern.array/gauss_kern.array.max()
 
-    newim = sig.fftconvolve(datadict['image'], conbm1, mode='same')
-    newim = newim*datadict["sfactor"]
+    newim = scipy.signal.fftconvolve(datadict['image'], conbm1, mode='same')
+
+    newim *= datadict["sfactor"]
     return newim
 
 
@@ -105,8 +111,12 @@ def worker(args):
     file, outdir, new_beam, verbose = args
     if verbose:
         print(f'Working on {file}')
-    
-    outfile = file.replace('.fits', '.sm.fits')
+
+
+    if args.name is None:
+        outfile = file.replace('.fits', '.sm.fits')
+    else:
+        outfile = args.name
     datadict = getimdata(file)
 
     conbeam, sfactor = getbeam(
@@ -123,7 +133,7 @@ def worker(args):
         }
     )
 
-    newim= smooth(datadict, verbose=verbose)
+    newim = smooth(datadict, verbose=verbose)
 
     datadict.update(
         {
@@ -227,8 +237,17 @@ def cli():
         help='Input FITS image to smooth (can be a wildcard) - beam info must be in header.')
 
     parser.add_argument(
-        'outdir',
-        metavar='outdir',
+        '-n',
+        '--name'
+        dest='name',
+        type=str,
+        default=None,
+        help='Name of output file [infile.sm.fits].')
+
+    parser.add_argument(
+        '-o',
+        '--outdir'
+        dest='outdir',
         type=str,
         default=None,
         help='Output directory of smoothed FITS image(s) [./].')
