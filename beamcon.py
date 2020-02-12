@@ -1,17 +1,13 @@
 #!/usr/bin/env python
-
+import os
 import numpy as np
 import scipy.signal
-from astropy.convolution import convolve, convolve_fft
 from astropy import units as u
 from astropy.io import fits
 from radio_beam import Beam, Beams
 from glob import glob
 import au2
 import functools
-import pyfftw
-# Monkey patch fftpack with pyfftw.interfaces.scipy_fftpack
-scipy.fftpack = pyfftw.interfaces.scipy_fftpack
 print = functools.partial(print, flush=True)
 
 #############################################
@@ -38,8 +34,8 @@ def getbeam(datadict, new_beam, verbose=False):
             datadict['oldbeam'].minor.to(u.arcsec).value,
             datadict['oldbeam'].pa.to(u.deg).value
         ],
-        dx1=datadict['dx'],
-        dy1=datadict['dy']
+        dx1=datadict['dx'].to(u.arcsec).value,
+        dy1=datadict['dy'].to(u.arcsec).value
     )
 
     return conbm, fac
@@ -52,8 +48,8 @@ def getimdata(cubenm, verbose=False):
         print(f'Getting image data from {cubenm}')
     with fits.open(cubenm, memmap=True, mode='denywrite') as hdu:
 
-        dxas = hdu[0].header['CDELT1']*(-3600.)
-        dyas = hdu[0].header['CDELT2']*(3600.)
+        dxas = hdu[0].header['CDELT1']*-1*u.deg
+        dyas = hdu[0].header['CDELT2']*u.deg
 
         nx, ny = hdu[0].data[0, 0, :,
                              :].shape[0], hdu[0].data[0, 0, :, :].shape[1]
@@ -81,13 +77,13 @@ def smooth(datadict, verbose=False):
     if verbose:
         print(f'Smoothing so beam is', datadict["final_beam"])
         print(f'Using convolving beam', datadict["conbeam"])
-    pix_scale = datadict['dy'] * u.arcsec
+    pix_scale = datadict['dy']
 
     gauss_kern = datadict["conbeam"].as_kernel(pix_scale)
 
     conbm1 = gauss_kern.array/gauss_kern.array.max()
 
-    newim = scipy.signal.fftconvolve(datadict['image'], conbm1, mode='same')
+    newim = scipy.signal.convolve(datadict['image'].astype('f8'), conbm1, mode='same')
 
     newim *= datadict["sfactor"]
     return newim
@@ -108,15 +104,15 @@ def savefile(datadict, filename, outdir='.', verbose=False):
 
 
 def worker(args):
-    file, outdir, new_beam, verbose = args
+    file, outdir, new_beam, clargs, verbose = args
     if verbose:
         print(f'Working on {file}')
 
 
-    if args.name is None:
-        outfile = file.replace('.fits', '.sm.fits')
-    else:
-        outfile = args.name
+    outfile = os.path.basename(file)
+    outfile = file.replace('.fits', '.sm.fits')
+    if clargs.prefix is not None:
+        outfile =  clargs.prefix + outfile
     datadict = getimdata(file)
 
     conbeam, sfactor = getbeam(
@@ -205,7 +201,7 @@ def main(pool, args, verbose=False):
     if verbose:
         print(f'Final beam is', new_beam)
 
-    inputs = [[file, outdir, new_beam, verbose]
+    inputs = [[file, outdir, new_beam, args, verbose]
               for i, file in enumerate(files)]
 
     output = list(pool.map(worker, inputs))
@@ -224,6 +220,8 @@ def cli():
     descStr = """
     Smooth a field to a common resolution.
 
+    Names of output files are 'infile'.sm.fits
+
     """
 
     # Parse the command line options
@@ -237,16 +235,16 @@ def cli():
         help='Input FITS image to smooth (can be a wildcard) - beam info must be in header.')
 
     parser.add_argument(
-        '-n',
-        '--name'
-        dest='name',
+        '-p',
+        '--prefix',
+        dest='prefix',
         type=str,
         default=None,
-        help='Name of output file [infile.sm.fits].')
+        help='Add prefix to output filenames.')
 
     parser.add_argument(
         '-o',
-        '--outdir'
+        '--outdir',
         dest='outdir',
         type=str,
         default=None,
