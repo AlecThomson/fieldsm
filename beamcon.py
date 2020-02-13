@@ -22,7 +22,6 @@ def getbeam(datadict, new_beam, verbose=False):
         print(f"Current beam is", datadict['oldbeam'])
 
     conbm = new_beam.deconvolve(datadict['oldbeam'])
-    #conbm=au2.gaussianDeconvolve(final_beam[0], final_beam[1], final_beam[2], bmajs[i], bmins[i], bpas[i])
     fac, amp, outbmaj, outbmin, outbpa = au2.gauss_factor(
         [
             conbm.major.to(u.arcsec).value,
