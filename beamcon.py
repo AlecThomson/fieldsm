@@ -211,7 +211,6 @@ def main(pool, args, verbose=False):
 
     if verbose:
         print('Done!')
-    import ipdb; ipdb.set_trace()
 
 def cli():
     """Command-line interface
