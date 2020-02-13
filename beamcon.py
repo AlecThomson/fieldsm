@@ -171,14 +171,17 @@ def main(pool, args, verbose=False):
 
     # Get file list
     files = glob(args.infile)
-
-    # Find largest bmax
-    big_beam = getmaxbeam(files, verbose=verbose)
+    if files == []:
+        raise Exception('No files found!')
 
     # Parse args
     bmaj = args.bmaj
     bmin = args.bmin
     bpa = args.bpa
+
+    # Find largest bmax
+    if bmaj is None or bmin is None:
+        big_beam = getmaxbeam(files, verbose=verbose)
 
     # Set to largest
     if bmaj is None:
@@ -208,7 +211,7 @@ def main(pool, args, verbose=False):
 
     if verbose:
         print('Done!')
-
+    import ipdb; ipdb.set_trace()
 
 def cli():
     """Command-line interface
